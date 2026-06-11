@@ -2,62 +2,78 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
+import os
 
-st.set_page_config(page_title="⚽ 월드컵 스코어 맞추기", page_icon="⚽", layout="wide")
+st.set_page_config(
+    page_title="⚽ 월드컵 스코어 맞추기",
+    page_icon="⚽",
+    layout="centered",   # wide 제거 → 모바일 중앙 정렬
+    initial_sidebar_state="collapsed",  # 사이드바 기본 접힘
+)
 
 KST = pytz.timezone("Asia/Seoul")
+CSV_PATH = "votes.csv"
 
 MATCHES = [
-    {
-        "id": "g1",
-        "title": "한국 vs 체코 (1차전)",
-        "date": datetime(2026, 6, 12, 11, 0, tzinfo=KST),
-        "venue": "에스타디오 아크론",
-        "home": "🇰🇷 한국",
-        "away": "🇨🇿 체코",
-    },
-    {
-        "id": "g2",
-        "title": "한국 vs 멕시코 (2차전)",
-        "date": datetime(2026, 6, 19, 10, 0, tzinfo=KST),
-        "venue": "에스타디오 아크론",
-        "home": "🇰🇷 한국",
-        "away": "🇲🇽 멕시코",
-    },
-    {
-        "id": "g3",
-        "title": "한국 vs 남아공 (3차전)",
-        "date": datetime(2026, 6, 25, 10, 0, tzinfo=KST),
-        "venue": "구아달로페",
-        "home": "🇰🇷 한국",
-        "away": "🇿🇦 남아공",
-    },
+    {"id":"g1","title":"한국 vs 체코","sub":"1차전","date":datetime(2026,6,12,11,0,tzinfo=KST),"venue":"에스타디오 아크론","home":"🇰🇷 한국","away":"🇨🇿 체코"},
+    {"id":"g2","title":"한국 vs 멕시코","sub":"2차전","date":datetime(2026,6,19,10,0,tzinfo=KST),"venue":"에스타디오 아크론","home":"🇰🇷 한국","away":"🇲🇽 멕시코"},
+    {"id":"g3","title":"한국 vs 남아공","sub":"3차전","date":datetime(2026,6,25,10,0,tzinfo=KST),"venue":"구아달로페","home":"🇰🇷 한국","away":"🇿🇦 남아공"},
 ]
 
-# ── 세션 상태 초기화 ──────────────────────────────────────────
-if "votes" not in st.session_state:
-    # votes: { game_id: [ {"emp_id":…,"name":…,"home":…,"away":…,"ts":…}, … ] }
-    st.session_state.votes = {m["id"]: [] for m in MATCHES}
+# ── CSV ──────────────────────────────────────────────────────
+def load_votes_from_csv():
+    votes = {m["id"]: [] for m in MATCHES}
+    if not os.path.exists(CSV_PATH):
+        return votes
+    try:
+        df = pd.read_csv(CSV_PATH, dtype=str)
+        for _, row in df.iterrows():
+            gid = row["game_id"]
+            if gid not in votes:
+                continue
+            votes[gid].append({
+                "emp_id": row["emp_id"],
+                "name":   row["name"],
+                "home":   int(row["home"]),
+                "away":   int(row["away"]),
+                "ts":     row["ts"],
+            })
+    except Exception as e:
+        st.warning(f"CSV 불러오기 실패: {e}")
+    return votes
 
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
+def save_votes_to_csv():
+    rows = []
+    for m in MATCHES:
+        for v in st.session_state.votes[m["id"]]:
+            rows.append({"game_id":m["id"],"game_title":m["title"],
+                         "emp_id":v["emp_id"],"name":v["name"],
+                         "home":v["home"],"away":v["away"],"ts":v["ts"]})
+    pd.DataFrame(rows, columns=["game_id","game_title","emp_id","name","home","away","ts"])\
+      .to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
 
-if "emp_id" not in st.session_state:
-    st.session_state.emp_id = ""
+def all_votes_to_df():
+    rows = []
+    for m in MATCHES:
+        for v in st.session_state.votes[m["id"]]:
+            rows.append({"경기":m["title"],"사번":v["emp_id"],"이름":v["name"],
+                         "예측":f"{v['home']}:{v['away']}","등록":v["ts"]})
+    return pd.DataFrame(rows)
 
-if "emp_name" not in st.session_state:
-    st.session_state.emp_name = ""
-
-if "admin_mode" not in st.session_state:
-    st.session_state.admin_mode = False
-
+# ── 세션 초기화 ───────────────────────────────────────────────
+if "votes"      not in st.session_state: st.session_state.votes      = load_votes_from_csv()
+if "logged_in"  not in st.session_state: st.session_state.logged_in  = False
+if "emp_id"     not in st.session_state: st.session_state.emp_id     = ""
+if "emp_name"   not in st.session_state: st.session_state.emp_name   = ""
+if "admin_mode" not in st.session_state: st.session_state.admin_mode = False
+# 경기별 스코어 임시 저장
+for m in MATCHES:
+    if f"score_h_{m['id']}" not in st.session_state: st.session_state[f"score_h_{m['id']}"] = 2
+    if f"score_a_{m['id']}" not in st.session_state: st.session_state[f"score_a_{m['id']}"] = 1
 
 # ── 헬퍼 ─────────────────────────────────────────────────────
-def is_closed(match):
-    now = datetime.now(KST)
-    cutoff = match["date"].replace(tzinfo=KST) if match["date"].tzinfo is None else match["date"]
-    return now >= cutoff  # 경기 시작 시각 이후 마감 (필요시 timedelta(minutes=-5) 조정)
-
+def is_closed(m):
+    return datetime.now(KST) >= m["date"]
 
 def my_vote(game_id):
     for v in st.session_state.votes[game_id]:
@@ -65,235 +81,318 @@ def my_vote(game_id):
             return v
     return None
 
-
 def upsert_vote(game_id, home_score, away_score):
     lst = st.session_state.votes[game_id]
-    ts = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    ts  = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     for i, v in enumerate(lst):
         if v["emp_id"] == st.session_state.emp_id:
             lst[i] = {**v, "home": home_score, "away": away_score, "ts": ts}
+            save_votes_to_csv()
             return
-    lst.append({
-        "emp_id": st.session_state.emp_id,
-        "name": st.session_state.emp_name,
-        "home": home_score,
-        "away": away_score,
-        "ts": ts,
-    })
+    lst.append({"emp_id":st.session_state.emp_id,"name":st.session_state.emp_name,
+                "home":home_score,"away":away_score,"ts":ts})
+    save_votes_to_csv()
 
-
-def vote_summary(game_id):
-    """스코어별 투표 수 집계 → DataFrame"""
+def vote_chips(game_id):
     lst = st.session_state.votes[game_id]
     if not lst:
-        return pd.DataFrame(columns=["스코어", "투표수"])
+        return {}
     counts = {}
     for v in lst:
-        key = f"{v['home']} : {v['away']}"
-        counts[key] = counts.get(key, 0) + 1
-    df = pd.DataFrame(sorted(counts.items(), key=lambda x: -x[1]), columns=["스코어", "투표수"])
-    return df
+        k = f"{v['home']}:{v['away']}"
+        counts[k] = counts.get(k, 0) + 1
+    return dict(sorted(counts.items(), key=lambda x: -x[1]))
 
-
-# ── CSS ──────────────────────────────────────────────────────
+# ── CSS (모바일 최적화) ────────────────────────────────────────
 st.markdown("""
 <style>
-    .stApp { font-family: 'Noto Sans KR', sans-serif; }
-    .hero-banner {
-        background: linear-gradient(135deg, #1a3c8f 0%, #0f2460 100%);
-        border-radius: 14px;
-        padding: 24px 32px;
-        margin-bottom: 28px;
-        color: white;
-    }
-    .hero-banner h1 { font-size: 26px; margin: 0 0 4px; }
-    .hero-banner p  { font-size: 14px; opacity: 0.8; margin: 0; }
-    .match-header-label {
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 4px;
-    }
-    .closed-badge {
-        display: inline-block;
-        background: #fee2e2;
-        color: #991b1b;
-        font-size: 12px;
-        padding: 2px 10px;
-        border-radius: 20px;
-        margin-left: 8px;
-    }
-    .open-badge {
-        display: inline-block;
-        background: #dcfce7;
-        color: #166534;
-        font-size: 12px;
-        padding: 2px 10px;
-        border-radius: 20px;
-        margin-left: 8px;
-    }
+/* 전체 폰트 & 여백 */
+.stApp { font-family: 'Noto Sans KR', sans-serif; }
+.block-container { padding: 1rem 1rem 4rem !important; max-width: 480px !important; }
+
+/* 히어로 */
+.hero {
+    background: linear-gradient(135deg, #1a3c8f, #0f2460);
+    border-radius: 16px; padding: 20px 20px 16px;
+    margin-bottom: 20px; color: white; text-align: center;
+}
+.hero h1 { font-size: 20px; margin: 0 0 4px; }
+.hero p  { font-size: 12px; opacity: 0.8; margin: 0; }
+
+/* 로그인 카드 */
+.login-card {
+    background: #f8f9ff; border: 1px solid #e0e4f0;
+    border-radius: 16px; padding: 20px; margin-bottom: 20px;
+    text-align: center;
+}
+.login-card p { font-size: 14px; color: #555; margin: 0 0 12px; }
+
+/* 경기 카드 */
+.match-card {
+    background: white; border: 1px solid #e8eaf0;
+    border-radius: 16px; padding: 16px;
+    margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.match-sub  { font-size: 11px; color: #888; margin: 0 0 2px; }
+.match-title{ font-size: 17px; font-weight: 700; color: #1a1a2e; margin: 0 0 4px; }
+.match-meta { font-size: 12px; color: #999; margin: 0 0 14px; }
+
+/* 배지 */
+.badge-open   { display:inline-block; background:#dcfce7; color:#166534; font-size:11px; padding:2px 9px; border-radius:20px; margin-left:6px; }
+.badge-closed { display:inline-block; background:#fee2e2; color:#991b1b; font-size:11px; padding:2px 9px; border-radius:20px; margin-left:6px; }
+.badge-done   { display:inline-block; background:#dbeafe; color:#1e40af; font-size:11px; padding:2px 9px; border-radius:20px; margin-left:6px; }
+
+/* 스코어 조작 영역 */
+.score-row {
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px; margin: 12px 0;
+}
+.team-name { font-size: 13px; font-weight: 600; color: #333; width: 72px; text-align: center; }
+.score-display { font-size: 32px; font-weight: 800; color: #1a3c8f; min-width: 36px; text-align: center; }
+.vs-text { font-size: 14px; color: #bbb; padding: 0 4px; }
+
+/* +/- 버튼 */
+.stButton > button {
+    border-radius: 50px !important;
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    height: 48px !important;
+    min-height: 48px !important;
+    line-height: 1 !important;
+}
+
+/* 예측 등록 버튼 크게 */
+.submit-area .stButton > button {
+    height: 52px !important;
+    font-size: 16px !important;
+    border-radius: 12px !important;
+}
+
+/* 투표 칩 */
+.chips-wrap { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.chip {
+    background: #f1f3f9; border: 1px solid #e0e4f0;
+    border-radius: 20px; padding: 6px 14px;
+    font-size: 13px; font-weight: 600; color: #333;
+    display: flex; align-items: center; gap: 6px;
+}
+.chip-mine { background: #dbeafe; border-color: #93c5fd; color: #1e40af; }
+.chip-cnt  { font-size: 11px; font-weight: 400; color: #888; }
+.chip-mine .chip-cnt { color: #60a5fa; }
+
+/* 내 예측 표시줄 */
+.my-vote-bar {
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    border-radius: 10px; padding: 8px 12px;
+    font-size: 13px; color: #1e40af; margin-bottom: 10px;
+    text-align: center;
+}
+
+/* 관리자 테이블 스크롤 */
+.stDataFrame { font-size: 12px !important; }
+
+/* 탭 글씨 크게 */
+.stTabs [data-baseweb="tab"] { font-size: 15px !important; padding: 10px 20px !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ── 히어로 배너 ───────────────────────────────────────────────
 st.markdown("""
-<div class="hero-banner">
-  <h1>⚽ 2026 월드컵 스코어 맞추기</h1>
-  <p>🏆 경기 시작 전까지 예측 등록/수정 가능 &nbsp;·&nbsp; 🎉 맞추면 커피 한 잔!</p>
+<div class="hero">
+  <h1>⚽ 월드컵 스코어 맞추기</h1>
+  <p>2026 북중미 월드컵 · 맞추면 커피 한 잔! ☕</p>
 </div>
 """, unsafe_allow_html=True)
 
-
-# ── 로그인 사이드바 ───────────────────────────────────────────
-with st.sidebar:
-    st.header("👤 내 정보")
-
-    if not st.session_state.logged_in:
-        with st.form("login_form"):
-            emp_id = st.text_input("사번", placeholder="예: 202401234")
-            emp_name = st.text_input("이름", placeholder="홍길동")
-            submitted = st.form_submit_button("로그인", use_container_width=True)
-            if submitted:
-                if emp_id.strip() and emp_name.strip():
-                    st.session_state.emp_id = emp_id.strip()
-                    st.session_state.emp_name = emp_name.strip()
-                    st.session_state.logged_in = True
-                    st.rerun()
-                else:
-                    st.error("사번과 이름을 모두 입력해주세요.")
-    else:
-        st.success(f"**{st.session_state.emp_name}** ({st.session_state.emp_id})")
-        if st.button("로그아웃", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.emp_id = ""
-            st.session_state.emp_name = ""
-            st.rerun()
-
-    st.divider()
-
-    # 관리자 패널
-    with st.expander("🔒 관리자"):
-        pw = st.text_input("관리자 비밀번호", type="password", key="admin_pw")
-        if st.button("확인"):
-            if pw == "worldcup2026":   # ← 비밀번호 변경
-                st.session_state.admin_mode = True
-                st.success("관리자 모드 활성화")
+# ── 로그인 (메인 화면, 사이드바 아님) ────────────────────────
+if not st.session_state.logged_in:
+    st.markdown('<div class="login-card"><p>사번과 이름을 입력하고 참여하세요 👇</p></div>', unsafe_allow_html=True)
+    with st.form("login_form"):
+        emp_id   = st.text_input("사번", placeholder="예: 202401234")
+        emp_name = st.text_input("이름", placeholder="홍길동")
+        if st.form_submit_button("✅ 참여하기", use_container_width=True, type="primary"):
+            if emp_id.strip() and emp_name.strip():
+                st.session_state.emp_id   = emp_id.strip()
+                st.session_state.emp_name = emp_name.strip()
+                st.session_state.logged_in = True
+                # 기존 투표값으로 스코어 초기화
+                for m in MATCHES:
+                    mv = my_vote(m["id"])
+                    if mv:
+                        st.session_state[f"score_h_{m['id']}"] = mv["home"]
+                        st.session_state[f"score_a_{m['id']}"] = mv["away"]
+                st.rerun()
             else:
-                st.error("비밀번호 오류")
+                st.error("사번과 이름을 모두 입력해주세요.")
+    st.stop()
 
+# ── 로그인 상태 헤더 ─────────────────────────────────────────
+col_user, col_logout = st.columns([3, 1])
+with col_user:
+    st.caption(f"👤 {st.session_state.emp_name} ({st.session_state.emp_id})")
+with col_logout:
+    if st.button("로그아웃", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.emp_id = st.session_state.emp_name = ""
+        st.rerun()
 
-# ── 탭 구성 ──────────────────────────────────────────────────
-tab_matches, tab_results = st.tabs(["📋 경기 예측", "📊 전체 현황"])
+st.divider()
 
+# ── 탭 ────────────────────────────────────────────────────────
+tab_vote, tab_result, tab_admin = st.tabs(["📋 예측", "📊 현황", "🔒 관리자"])
 
 # ──────────────────────────────────────────────────────────────
-# 탭 1 : 경기 예측
+# 탭 1: 경기 예측
 # ──────────────────────────────────────────────────────────────
-with tab_matches:
-    if not st.session_state.logged_in:
-        st.info("왼쪽 사이드바에서 사번과 이름을 입력하면 예측에 참여할 수 있어요!")
-
+with tab_vote:
     for m in MATCHES:
         closed = is_closed(m)
-        mv = my_vote(m["id"]) if st.session_state.logged_in else None
-        badge = '<span class="closed-badge">⛔ 마감</span>' if closed else '<span class="open-badge">✅ 예측 가능</span>'
+        mv     = my_vote(m["id"])
+        hk     = f"score_h_{m['id']}"
+        ak     = f"score_a_{m['id']}"
+
+        # 배지
+        if closed:
+            badge = '<span class="badge-closed">⛔ 마감</span>'
+        elif mv:
+            badge = '<span class="badge-done">✏ 수정 가능</span>'
+        else:
+            badge = '<span class="badge-open">✅ 예측 가능</span>'
+
+        date_str = m["date"].strftime("%m/%d %p %I:%M").replace("AM","오전").replace("PM","오후")
 
         st.markdown(f"""
-        <div class="match-header-label">
-            {m["title"]} {badge}
+        <div class="match-card">
+          <div class="match-sub">{m["sub"]} · {date_str} · {m["venue"]}</div>
+          <div class="match-title">{m["title"]}{badge}</div>
         </div>
-        <p style="color:#666;font-size:13px;margin-top:0">
-            🕐 {m["date"].strftime("%Y. %m. %d. (%a) %p %I:%M").replace("AM","오전").replace("PM","오후")}
-            &nbsp;·&nbsp; 📍 {m["venue"]}
-        </p>
         """, unsafe_allow_html=True)
 
-        col_form, col_dist = st.columns([1, 1], gap="large")
+        # 내 기존 예측 표시
+        if mv:
+            st.markdown(f'<div class="my-vote-bar">내 예측: {mv["home"]} : {mv["away"]}</div>', unsafe_allow_html=True)
 
-        # 왼쪽: 스코어 입력
-        with col_form:
-            if st.session_state.logged_in and not closed:
-                with st.form(key=f"form_{m['id']}"):
-                    c1, c2, c3 = st.columns([2, 1, 2])
-                    with c1:
-                        st.markdown(f"**{m['home']}**")
-                        home_score = st.number_input(
-                            "득점", min_value=0, max_value=20,
-                            value=mv["home"] if mv else 2,
-                            key=f"h_{m['id']}", label_visibility="collapsed"
-                        )
-                    with c2:
-                        st.markdown("<div style='text-align:center;padding-top:32px;font-size:20px;color:#888'>vs</div>", unsafe_allow_html=True)
-                    with c3:
-                        st.markdown(f"**{m['away']}**")
-                        away_score = st.number_input(
-                            "득점", min_value=0, max_value=20,
-                            value=mv["away"] if mv else 1,
-                            key=f"a_{m['id']}", label_visibility="collapsed"
-                        )
+        if not closed:
+            # 스코어 조작 — 큰 +/- 터치 버튼
+            st.markdown('<div class="score-row">', unsafe_allow_html=True)
+            c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 2])
+            with c1:
+                st.markdown(f'<div class="team-name">{m["home"]}</div>', unsafe_allow_html=True)
+            with c2:
+                if st.button("−", key=f"hm_{m['id']}", use_container_width=True):
+                    st.session_state[hk] = max(0, st.session_state[hk] - 1)
+                    st.rerun()
+            with c3:
+                st.markdown(f'<div class="score-display" style="text-align:center">{st.session_state[hk]}<span class="vs-text"> : </span>{st.session_state[ak]}</div>', unsafe_allow_html=True)
+            with c4:
+                if st.button("+", key=f"hp_{m['id']}", use_container_width=True):
+                    st.session_state[hk] = min(20, st.session_state[hk] + 1)
+                    st.rerun()
+            with c5:
+                st.markdown(f'<div class="team-name">{m["away"]}</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-                    if mv:
-                        st.caption(f"내 예측: **{mv['home']} : {mv['away']}** ({mv['ts']} 등록)")
+            # away 팀 버튼
+            ca1, ca2, ca3, ca4, ca5 = st.columns([2, 1, 1, 1, 2])
+            with ca2:
+                if st.button("−", key=f"am_{m['id']}", use_container_width=True):
+                    st.session_state[ak] = max(0, st.session_state[ak] - 1)
+                    st.rerun()
+            with ca4:
+                if st.button("+", key=f"ap_{m['id']}", use_container_width=True):
+                    st.session_state[ak] = min(20, st.session_state[ak] + 1)
+                    st.rerun()
 
-                    btn_label = "✏ 수정하기" if mv else "⚽ 예측 등록"
-                    if st.form_submit_button(btn_label, use_container_width=True, type="primary"):
-                        upsert_vote(m["id"], int(home_score), int(away_score))
-                        st.toast(f"예측 완료! {int(home_score)} : {int(away_score)} 🎉")
-                        st.rerun()
+            # 등록 버튼
+            st.markdown('<div class="submit-area">', unsafe_allow_html=True)
+            btn_label = f"✏ {st.session_state[hk]} : {st.session_state[ak]} 으로 수정" if mv else f"⚽ {st.session_state[hk]} : {st.session_state[ak]} 예측 등록"
+            if st.button(btn_label, key=f"submit_{m['id']}", use_container_width=True, type="primary"):
+                upsert_vote(m["id"], st.session_state[hk], st.session_state[ak])
+                st.toast(f"등록 완료! {st.session_state[hk]} : {st.session_state[ak]} 🎉")
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            elif closed:
-                st.warning("이 경기는 예측이 마감됐어요.")
-                if mv:
-                    st.info(f"내 예측: **{mv['home']} : {mv['away']}**")
-            else:
-                st.info("로그인 후 예측할 수 있어요.")
+        else:
+            st.warning("예측이 마감됐어요.")
 
-        # 오른쪽: 투표 분포
-        with col_dist:
-            df = vote_summary(m["id"])
-            total = len(st.session_state.votes[m["id"]])
-            st.caption(f"총 {total}명 투표")
-            if df.empty:
-                st.caption("아직 예측이 없어요.")
-            else:
-                st.dataframe(
-                    df,
-                    hide_index=True,
-                    use_container_width=True,
-                    column_config={
-                        "스코어": st.column_config.TextColumn("스코어", width="small"),
-                        "투표수": st.column_config.ProgressColumn(
-                            "투표수", min_value=0, max_value=total, format="%d명"
-                        ),
-                    }
-                )
+        # 투표 현황 칩
+        chips = vote_chips(m["id"])
+        total = sum(chips.values())
+        if chips:
+            st.caption(f"총 {total}명 참여")
+            chips_html = '<div class="chips-wrap">'
+            my_key = f"{mv['home']}:{mv['away']}" if mv else None
+            for score, cnt in chips.items():
+                is_mine = (score == my_key)
+                cls = "chip chip-mine" if is_mine else "chip"
+                chips_html += f'<div class="{cls}">{score.replace(":"," : ")} <span class="chip-cnt">{cnt}명{"✓" if is_mine else ""}</span></div>'
+            chips_html += '</div>'
+            st.markdown(chips_html, unsafe_allow_html=True)
+        else:
+            st.caption("아직 예측이 없어요. 첫 번째로 등록해보세요!")
 
-        st.divider()
-
+        st.markdown("<br>", unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────────────────────
-# 탭 2 : 전체 현황 (관리자 or 전체 공개)
+# 탭 2: 전체 현황
 # ──────────────────────────────────────────────────────────────
-with tab_results:
-    st.subheader("전체 예측 현황")
-
+with tab_result:
     for m in MATCHES:
         lst = st.session_state.votes[m["id"]]
-        st.markdown(f"#### {m['title']}")
+        st.markdown(f"**{m['title']}** ({m['sub']})")
         if not lst:
             st.caption("아직 예측이 없어요.")
         else:
-            rows = []
-            for v in lst:
-                rows.append({
-                    "사번": v["emp_id"] if st.session_state.admin_mode else v["emp_id"][:4] + "***",
-                    "이름": v["name"] if st.session_state.admin_mode else v["name"][0] + "*" * (len(v["name"]) - 1),
-                    "예측 스코어": f"{v['home']} : {v['away']}",
-                    "등록 시각": v["ts"],
-                })
-            df_all = pd.DataFrame(rows)
-            st.dataframe(df_all, hide_index=True, use_container_width=True)
-
+            rows = [{
+                "이름": v["name"][0] + "*" * (len(v["name"]) - 1),
+                "예측": f"{v['home']} : {v['away']}",
+                "시각": v["ts"][5:16],  # MM-DD HH:MM
+            } for v in lst]
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
         st.divider()
 
+# ──────────────────────────────────────────────────────────────
+# 탭 3: 관리자
+# ──────────────────────────────────────────────────────────────
+with tab_admin:
     if not st.session_state.admin_mode:
-        st.caption("💡 사번/이름 전체 열람은 관리자 모드에서 가능합니다.")
+        with st.form("admin_form"):
+            pw = st.text_input("관리자 비밀번호", type="password")
+            if st.form_submit_button("확인", use_container_width=True, type="primary"):
+                if pw == "worldcup2026":
+                    st.session_state.admin_mode = True
+                    st.rerun()
+                else:
+                    st.error("비밀번호 오류")
+    else:
+        st.success("관리자 모드")
+
+        if st.button("🔄 데이터 새로고침", use_container_width=True):
+            st.session_state.votes = load_votes_from_csv()
+            st.rerun()
+
+        df_dl = all_votes_to_df()
+        if not df_dl.empty:
+            st.download_button(
+                label="⬇ 전체 데이터 다운로드 (CSV)",
+                data=df_dl.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                file_name=f"worldcup_{datetime.now(KST).strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        st.divider()
+        for m in MATCHES:
+            lst = st.session_state.votes[m["id"]]
+            st.markdown(f"**{m['title']}**")
+            if not lst:
+                st.caption("없음")
+            else:
+                rows = [{"사번":v["emp_id"],"이름":v["name"],
+                         "예측":f"{v['home']}:{v['away']}","시각":v["ts"][5:16]} for v in lst]
+                st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+            st.divider()
+
+        if st.button("로그아웃", key="admin_logout"):
+            st.session_state.admin_mode = False
+            st.rerun()
