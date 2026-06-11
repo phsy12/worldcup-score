@@ -66,10 +66,10 @@ if "logged_in"  not in st.session_state: st.session_state.logged_in  = False
 if "emp_id"     not in st.session_state: st.session_state.emp_id     = ""
 if "emp_name"   not in st.session_state: st.session_state.emp_name   = ""
 if "admin_mode" not in st.session_state: st.session_state.admin_mode = False
-# 경기별 스코어 임시 저장
+# 경기별 선택된 스코어 (None = 미선택)
 for m in MATCHES:
-    if f"score_h_{m['id']}" not in st.session_state: st.session_state[f"score_h_{m['id']}"] = 2
-    if f"score_a_{m['id']}" not in st.session_state: st.session_state[f"score_a_{m['id']}"] = 1
+    if f"sel_{m['id']}" not in st.session_state:
+        st.session_state[f"sel_{m['id']}"] = None
 
 # ── 헬퍼 ─────────────────────────────────────────────────────
 def is_closed(m):
@@ -142,30 +142,46 @@ st.markdown("""
 .badge-closed { display:inline-block; background:#fee2e2; color:#991b1b; font-size:11px; padding:2px 9px; border-radius:20px; margin-left:6px; }
 .badge-done   { display:inline-block; background:#dbeafe; color:#1e40af; font-size:11px; padding:2px 9px; border-radius:20px; margin-left:6px; }
 
-/* 스코어 조작 영역 */
-.score-row {
-    display: flex; align-items: center; justify-content: center;
-    gap: 8px; margin: 12px 0;
+/* 스코어 선택 그리드 */
+.score-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin: 12px 0 4px;
 }
-.team-name { font-size: 13px; font-weight: 600; color: #333; width: 72px; text-align: center; }
-.score-display { font-size: 32px; font-weight: 800; color: #1a3c8f; min-width: 36px; text-align: center; }
-.vs-text { font-size: 14px; color: #bbb; padding: 0 4px; }
+.score-btn {
+    background: #f1f3f9; border: 2px solid #e0e4f0;
+    border-radius: 12px; padding: 12px 4px;
+    font-size: 16px; font-weight: 700; color: #333;
+    text-align: center; cursor: pointer;
+    transition: all 0.15s;
+}
+.score-btn:active { transform: scale(0.95); }
+.score-btn-selected {
+    background: #1a3c8f; border-color: #1a3c8f;
+    color: white;
+}
+.score-btn-mine {
+    background: #dbeafe; border-color: #3b82f6;
+    color: #1e40af;
+}
+.teams-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+}
+.team-label { font-size: 14px; font-weight: 700; color: #1a1a2e; }
+.selected-score {
+    font-size: 28px; font-weight: 800; color: #1a3c8f;
+    text-align: center; padding: 4px 0 8px;
+}
 
-/* +/- 버튼 */
+/* 버튼 공통 */
 .stButton > button {
-    border-radius: 50px !important;
-    font-size: 20px !important;
-    font-weight: 700 !important;
+    border-radius: 12px !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
     height: 48px !important;
     min-height: 48px !important;
-    line-height: 1 !important;
-}
-
-/* 예측 등록 버튼 크게 */
-.submit-area .stButton > button {
-    height: 52px !important;
-    font-size: 16px !important;
-    border-radius: 12px !important;
 }
 
 /* 투표 칩 */
@@ -215,12 +231,11 @@ if not st.session_state.logged_in:
                 st.session_state.emp_id   = emp_id.strip()
                 st.session_state.emp_name = emp_name.strip()
                 st.session_state.logged_in = True
-                # 기존 투표값으로 스코어 초기화
+                # 기존 투표값으로 선택 초기화
                 for m in MATCHES:
                     mv = my_vote(m["id"])
                     if mv:
-                        st.session_state[f"score_h_{m['id']}"] = mv["home"]
-                        st.session_state[f"score_a_{m['id']}"] = mv["away"]
+                        st.session_state[f"sel_{m['id']}"] = f"{mv['home']}:{mv['away']}"
                 st.rerun()
             else:
                 st.error("사번과 이름을 모두 입력해주세요.")
@@ -248,8 +263,6 @@ with tab_vote:
     for m in MATCHES:
         closed = is_closed(m)
         mv     = my_vote(m["id"])
-        hk     = f"score_h_{m['id']}"
-        ak     = f"score_a_{m['id']}"
 
         # 배지
         if closed:
@@ -273,44 +286,60 @@ with tab_vote:
             st.markdown(f'<div class="my-vote-bar">내 예측: {mv["home"]} : {mv["away"]}</div>', unsafe_allow_html=True)
 
         if not closed:
-            # 스코어 조작 — 큰 +/- 터치 버튼
-            st.markdown('<div class="score-row">', unsafe_allow_html=True)
-            c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 2])
-            with c1:
-                st.markdown(f'<div class="team-name">{m["home"]}</div>', unsafe_allow_html=True)
-            with c2:
-                if st.button("−", key=f"hm_{m['id']}", use_container_width=True):
-                    st.session_state[hk] = max(0, st.session_state[hk] - 1)
-                    st.rerun()
-            with c3:
-                st.markdown(f'<div class="score-display" style="text-align:center">{st.session_state[hk]}<span class="vs-text"> : </span>{st.session_state[ak]}</div>', unsafe_allow_html=True)
-            with c4:
-                if st.button("+", key=f"hp_{m['id']}", use_container_width=True):
-                    st.session_state[hk] = min(20, st.session_state[hk] + 1)
-                    st.rerun()
-            with c5:
-                st.markdown(f'<div class="team-name">{m["away"]}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            sel_key = f"sel_{m['id']}"
+            sel     = st.session_state[sel_key]
 
-            # away 팀 버튼
-            ca1, ca2, ca3, ca4, ca5 = st.columns([2, 1, 1, 1, 2])
-            with ca2:
-                if st.button("−", key=f"am_{m['id']}", use_container_width=True):
-                    st.session_state[ak] = max(0, st.session_state[ak] - 1)
-                    st.rerun()
-            with ca4:
-                if st.button("+", key=f"ap_{m['id']}", use_container_width=True):
-                    st.session_state[ak] = min(20, st.session_state[ak] + 1)
-                    st.rerun()
+            # 자주 나오는 스코어 조합 (한국 기준 승/무/패 섞어서)
+            SCORE_OPTIONS = [
+                "1:0","2:0","2:1","3:0",
+                "3:1","3:2","4:0","4:1",
+                "0:0","1:1","2:2","3:3",
+                "0:1","0:2","1:2","0:3",
+            ]
+
+            # 팀 헤더
+            st.markdown(f"""
+            <div class="teams-header">
+              <span class="team-label">{m["home"]}</span>
+              <span style="font-size:12px;color:#aaa">스코어 선택</span>
+              <span class="team-label">{m["away"]}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # 현재 선택 표시
+            if sel:
+                h, a = sel.split(":")
+                st.markdown(f'<div class="selected-score">{h} : {a}</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="selected-score" style="color:#ccc">? : ?</div>', unsafe_allow_html=True)
+
+            # 스코어 버튼 그리드 (4열)
+            cols_per_row = 4
+            for row_i in range(0, len(SCORE_OPTIONS), cols_per_row):
+                row_opts = SCORE_OPTIONS[row_i:row_i+cols_per_row]
+                btn_cols = st.columns(cols_per_row)
+                for col, score in zip(btn_cols, row_opts):
+                    h, a = score.split(":")
+                    is_sel  = (sel == score)
+                    is_prev = (mv and f"{mv['home']}:{mv['away']}" == score and not is_sel)
+                    label   = f"{'✓ ' if is_sel else ''}{h}:{a}"
+                    btn_type = "primary" if is_sel else "secondary"
+                    with col:
+                        if st.button(label, key=f"sb_{m['id']}_{score}", use_container_width=True, type=btn_type):
+                            st.session_state[sel_key] = score
+                            st.rerun()
 
             # 등록 버튼
-            st.markdown('<div class="submit-area">', unsafe_allow_html=True)
-            btn_label = f"✏ {st.session_state[hk]} : {st.session_state[ak]} 으로 수정" if mv else f"⚽ {st.session_state[hk]} : {st.session_state[ak]} 예측 등록"
-            if st.button(btn_label, key=f"submit_{m['id']}", use_container_width=True, type="primary"):
-                upsert_vote(m["id"], st.session_state[hk], st.session_state[ak])
-                st.toast(f"등록 완료! {st.session_state[hk]} : {st.session_state[ak]} 🎉")
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            if sel:
+                h, a = sel.split(":")
+                btn_label = f"✏ {h} : {a} 로 수정" if mv else f"⚽ {h} : {a} 예측 등록"
+                if st.button(btn_label, key=f"submit_{m['id']}", use_container_width=True, type="primary"):
+                    upsert_vote(m["id"], int(h), int(a))
+                    st.toast(f"등록 완료! {h} : {a} 🎉")
+                    st.rerun()
+            else:
+                st.button("위에서 스코어를 선택하세요", key=f"submit_{m['id']}", use_container_width=True, disabled=True)
 
         else:
             st.warning("예측이 마감됐어요.")
