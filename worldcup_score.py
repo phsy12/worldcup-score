@@ -184,6 +184,25 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# ── 구글 시트 연결 진단 ───────────────────────────────────────
+with st.expander("🔧 연결 테스트 (문제 확인용)"):
+    if st.button("구글 시트 연결 테스트"):
+        try:
+            gc = get_client()
+            st.success("✅ 1단계: 인증 성공")
+            try:
+                sh = gc.open_by_key(st.secrets["SHEET_ID"])
+                st.success(f"✅ 2단계: 시트 열기 성공 — {sh.title}")
+                try:
+                    ws = sh.worksheets()
+                    st.success(f"✅ 3단계: 워크시트 목록 — {[w.title for w in ws]}")
+                except Exception as e:
+                    st.error(f"❌ 3단계 실패: {e}")
+            except Exception as e:
+                st.error(f"❌ 2단계 실패: {e}")
+        except Exception as e:
+            st.error(f"❌ 1단계 실패: {e}")
+
 # ── 로그인 ───────────────────────────────────────────────────
 if not st.session_state.logged_in:
     st.markdown("#### 참여하기")
