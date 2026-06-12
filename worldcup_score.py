@@ -20,13 +20,13 @@ MATCHES = [
     {"id":"g3","title":"한국 vs 남아공","sub":"3차전","date":datetime(2026,6,25,10,0,tzinfo=KST),"venue":"구아달로페","home":"🇰🇷 한국","away":"🇿🇦 남아공"},
 ]
 
-SCHOOLS  = ["선택하세요", "연성초등학교", "연성중학교", "시흥고등학교", "목감고등학교"]  # ← 학교명 수정
+SCHOOLS  = ["선택하세요", "○○초등학교", "○○중학교", "○○고등학교"]  # ← 학교명 수정
 GRADES   = ["선택하세요", "1학년", "2학년", "3학년", "4학년", "5학년", "6학년"]
 
 
 # ── Google Sheets 연결 ────────────────────────────────────────
 @st.cache_resource
-def get_sheet():
+def get_client():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
@@ -34,35 +34,40 @@ def get_sheet():
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"], scopes=scopes
     )
-    gc     = gspread.authorize(creds)
-    sh     = gc.open_by_key(st.secrets["SHEET_ID"])
+    return gspread.authorize(creds)
 
-    # 시트가 없으면 자동 생성
+
+def get_worksheet(game_id):
+    """워크시트 반환. 없으면 헤더 포함해서 생성."""
+    gc = get_client()
+    sh = gc.open_by_key(st.secrets["SHEET_ID"])
     existing = [w.title for w in sh.worksheets()]
-    for m in MATCHES:
-        if m["id"] not in existing:
-            ws = sh.add_worksheet(title=m["id"], rows=500, cols=10)
-            ws.append_row(["game_id","game_title","school","grade","name","home","away","ts"])
-    return sh
+    if game_id not in existing:
+        ws = sh.add_worksheet(title=game_id, rows=500, cols=10)
+        ws.append_row(["game_id","game_title","school","grade","name","home","away","ts"])
+        return ws
+    return sh.worksheet(game_id)
 
 
 def load_votes():
     """Google Sheets → session_state.votes"""
     votes = {m["id"]: [] for m in MATCHES}
     try:
-        sh = get_sheet()
         for m in MATCHES:
-            ws   = sh.worksheet(m["id"])
+            ws   = get_worksheet(m["id"])
             rows = ws.get_all_records()
             for row in rows:
-                votes[m["id"]].append({
-                    "school": row["school"],
-                    "grade":  row["grade"],
-                    "name":   row["name"],
-                    "home":   int(row["home"]),
-                    "away":   int(row["away"]),
-                    "ts":     row["ts"],
-                })
+                try:
+                    votes[m["id"]].append({
+                        "school": str(row["school"]),
+                        "grade":  str(row["grade"]),
+                        "name":   str(row["name"]),
+                        "home":   int(row["home"]),
+                        "away":   int(row["away"]),
+                        "ts":     str(row["ts"]),
+                    })
+                except Exception:
+                    continue
     except Exception as e:
         st.warning(f"데이터 불러오기 실패: {e}")
     return votes
@@ -75,15 +80,16 @@ def user_key():
 def save_vote(game_id, home_score, away_score):
     """Google Sheets에 투표 저장 (upsert)"""
     try:
-        sh  = get_sheet()
-        ws  = sh.worksheet(game_id)
+        ws  = get_worksheet(game_id)
         ts  = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         rows = ws.get_all_records()
         uk   = user_key()
-        for i, row in enumerate(rows, start=2):  # 헤더=1행
+        for i, row in enumerate(rows, start=2):  # 헤더=1행, 데이터=2행부터
             if f"{row['school']}|{row['grade']}|{row['name']}" == uk:
-                ws.update(f"F{i}:H{i}", [[home_score, away_score, ts]])
+                # 기존 행 업데이트 (F=home, G=away, H=ts)
+                ws.update(range_name=f"F{i}:H{i}", values=[[home_score, away_score, ts]])
                 return
+        # 신규 행 추가
         m_title = next(m["title"] for m in MATCHES if m["id"] == game_id)
         ws.append_row([game_id, m_title,
                        st.session_state.school, st.session_state.grade,
