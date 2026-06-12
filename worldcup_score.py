@@ -6,7 +6,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 st.set_page_config(
-    page_title="⚽ 월드컵 스코어 맞추기",
+    page_title="⚽ 공감수학 월드컵 스코어 맞추기",
     page_icon="⚽",
     layout="centered",
     initial_sidebar_state="collapsed",
