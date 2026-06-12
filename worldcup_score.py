@@ -40,7 +40,7 @@ def get_client():
 def get_worksheet(game_id):
     """워크시트 반환. 없으면 헤더 포함해서 생성."""
     gc = get_client()
-    sh = gc.open_by_key(st.secrets["SHEET_ID"])
+    sh = gc.open_by_key("1ZEJvRAwUHgPXiegY4SDTo-ym4pE-52MG4HJib8dHQfs")
     existing = [w.title for w in sh.worksheets()]
     if game_id not in existing:
         ws = sh.add_worksheet(title=game_id, rows=500, cols=10)
@@ -191,7 +191,7 @@ with st.expander("🔧 연결 테스트 (문제 확인용)"):
             gc = get_client()
             st.success("✅ 1단계: 인증 성공")
             try:
-                sh = gc.open_by_key(st.secrets["SHEET_ID"])
+                sh = gc.open_by_key("1ZEJvRAwUHgPXiegY4SDTo-ym4pE-52MG4HJib8dHQfs")
                 st.success(f"✅ 2단계: 시트 열기 성공 — {sh.title}")
                 try:
                     ws = sh.worksheets()
