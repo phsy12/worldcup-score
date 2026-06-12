@@ -20,7 +20,7 @@ MATCHES = [
     {"id":"g3","title":"한국 vs 남아공","sub":"3차전","date":datetime(2026,6,25,10,0,tzinfo=KST),"venue":"구아달로페","home":"🇰🇷 한국","away":"🇿🇦 남아공"},
 ]
 
-SCHOOLS  = ["선택하세요", "연성초등학교", "연성중학교", "시흥고등학교", "목감고등학교"]  # ← 학교명 수정
+SCHOOLS  = ["선택하세요", "○○초등학교", "○○중학교", "○○고등학교"]  # ← 학교명 수정
 GRADES   = ["선택하세요", "1학년", "2학년", "3학년", "4학년", "5학년", "6학년"]
 
 
@@ -261,10 +261,13 @@ with tab_vote:
             btn_label = f"✏ {home_score} : {away_score} 로 수정" if mv else f"⚽ {home_score} : {away_score} 예측 등록"
             if st.button(btn_label, key=f"submit_{m['id']}", use_container_width=True, type="primary"):
                 with st.spinner("저장 중..."):
-                    save_vote(m["id"], int(home_score), int(away_score))
-                    st.session_state.votes = load_votes()
-                st.toast(f"등록 완료! {home_score} : {away_score} 🎉")
-                st.rerun()
+                    try:
+                        save_vote(m["id"], int(home_score), int(away_score))
+                        st.session_state.votes = load_votes()
+                        st.toast(f"등록 완료! {home_score} : {away_score} 🎉")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"오류: {e}")
         else:
             st.warning("예측이 마감됐어요.")
 
