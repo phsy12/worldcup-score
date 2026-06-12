@@ -40,7 +40,7 @@ def get_client():
 def get_worksheet(game_id):
     """워크시트 반환. 없으면 헤더 포함해서 생성."""
     gc = get_client()
-    sh = gc.open_by_key(st.secrets["app"]["SHEET_ID"])
+    sh = gc.open_by_key(st.secrets["SHEET_ID"])
     existing = [w.title for w in sh.worksheets()]
     if game_id not in existing:
         ws = sh.add_worksheet(title=game_id, rows=500, cols=10)
